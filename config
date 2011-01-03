@@ -1,0 +1,9 @@
+[core]
+	repositoryformatversion = 0
+	filemode = true
+	bare = true
+[hooks]
+	mailinglist = "foo@bar.com"
+	envelopesender = git@bar.com
+	emailprefix = "[GIT] "
+	showrev = "git show -C %s; echo"

@@ -1,0 +1,185 @@
+#!/usr/bin/php
+<?php 
+// Set constants.
+$php_pattern = "/\.(php|css)$/";
+$img_pattern = "/[^(_24bit)]\.(jpg|jpeg|gif|png)$/";
+$js_pattern  = "/\.js$/";
+
+// Set default variables.
+$return      = 0;
+$exit_status = 0;
+$output      = array();
+$matches     = array("php" => array(), "service" => array(), "js" => array(), "img" => array());
+
+// Get aganist git version.
+exec("git rev-parse --verify HEAD 2> /dev/null", $output, $return);
+$against = ($return == 0) ? "HEAD" : "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+
+// Get diff index.
+$cmd = "git diff-index --cached --name-status $against";
+exec($cmd, $output, $return);
+
+// Check Code Standard Error
+foreach ($output as $item) 
+{
+    $item = explode("\t", $item);
+
+    // Don't deal with commit id.
+    if (count($item) !== 2)
+    {
+        continue;
+    }
+
+    // Don't deal with deleted files.
+    $file   = $item[1];
+    $status = $item[0];
+    if ($status === "D")
+    {
+        continue;
+    }
+
+    // Match PHP files.
+    if (preg_match($php_pattern, $file)) 
+    {
+        if (strpos($file, "index/modules/service/controllers/") !== FALSE) 
+        {
+            $matches["service"][] = escapeshellarg($file);
+        }
+        else 
+        {
+            $matches["php"][] = escapeshellarg($file);
+        }
+    }
+
+    // Match JavaScript files.
+    if (preg_match($js_pattern, $file)) 
+    {
+        $matches["js"][] = escapeshellarg($file);
+    }
+
+    // Match image files.
+    if (preg_match($img_pattern, $file)) 
+    {
+        $matches["img"][] = escapeshellarg($file);
+    }
+}
+
+$message          = array("phpcs" => array(), "lang" => array(), "jslint" => array(), "optimg" => array());
+$return           = 0;
+
+// Check general PHP files.
+$list = implode(" ", $matches["php"]);
+if (count($matches["php"]))
+{
+    exec("phpcs -n --report=summary $list", $message["phpcs"], $return);
+    if ($return == 1)
+    {
+        $exit_status = 1;
+        $message["phpcs"] = array_slice($message["phpcs"], 2);
+        array_splice($message["phpcs"], count($message["phpcs"]) - 4, 3);
+    }
+
+    exec("php /home/m/bin/lang_label_check.php $list", $message["lang"], $return);
+    if ($return == 1)
+    {
+        $exit_status = 1;
+    }
+}
+
+// Check service PHP files.
+$list = implode(" ", $matches["service"]);
+$output = array();
+if (count($matches["service"]))
+{
+    exec("phpcs -n --report=summary --standard=MiiiService $list", $output, $return);
+    if ($return == 1)
+    {
+        $exit_status = 1;
+        $output = array_slice($output, 5);
+        array_splice($output, count($output) - 4, 3);
+        $message["phpcs"] = array_merge($message["phpcs"], $output);
+    }
+}
+
+// Check JavaScript files.
+if (count($matches["js"]))
+{
+    foreach ($matches["js"] as $file)
+    {
+        exec("java -jar /home/m/lib/java/rhino-1.7r2/js.jar /home/m/lib/jslint/jslint-precommit.js $file", $output, $return);
+        if ($return == 0) 
+        {
+            continue;
+        }
+        $message["jslint"][] = "jslint -f " . $file; 
+        $exit_status = 1;
+    }
+}
+
+// Check image files.
+if (count($matches["img"]))
+{
+    foreach ($matches["img"] as $file)
+    {
+        $cmd = "/home/m/bin/optimg --png8 --check-only $file";
+        exec($cmd, $output, $return);
+        $output = explode("\t", $output[0]);
+        $saved = $output[1];
+        if ($saved == 0) 
+        {
+            continue;
+        }
+        $message["img"][] = "/home/m/bin/optimg --png8 " . $file . "    (Save $saved bytes)";
+        $exit_status = 1;
+    }
+}
+
+if ($exit_status == 1)
+{
+    echo "\nCOMMIT FAILED!\n";
+    if (count($message["jslint"]))
+    {
+        echo "======================================================================================\n";
+        echo "JSLint Error report \n";
+        echo "======================================================================================\n";
+        echo implode("\n", $message["jslint"]) . "\n";
+        echo "======================================================================================\n\n";
+        exit(1);
+    }
+    if (count($message["phpcs"]))
+    {
+        echo "======================================================================================\n";
+        echo "PHP_CodeSniffer Error Report \n";
+        echo "======================================================================================\n";
+        echo implode("\n", $message["phpcs"]);
+        echo "======================================================================================\n\n";
+        exit(1);
+    }
+    if (count($message["lang"]))
+    {
+        echo "======================================================================================\n";
+        echo "Language Label Error Report \n";
+        echo "======================================================================================\n";
+        echo implode("\n", $message["lang"]) . "\n";
+        echo "======================================================================================\n\n";
+        exit(1);
+    }
+    if (count($message["img"]))
+    {
+        echo "======================================================================================\n";
+        echo "Image Optimization Warning \n";
+        echo "======================================================================================\n";
+        echo "You have the following choices: \n";
+        echo "1. If you are sure your image has been optimzied, add --no-verify option please.\n";
+        echo "2. If you need use PNG 24, please use the pattern of *_24bit.png.\n";
+        echo "3. If you would like using optimg command-line tool, execute the following commands.\n";
+        echo "======================================================================================\n";
+        echo implode("\n", $message["img"]) . "\n";
+        echo "======================================================================================\n\n";
+        exit(1);
+    }
+    echo "Please fix your code and commit again.\n\n";
+}
+
+exit($exit_status);
+?>

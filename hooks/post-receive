@@ -1,0 +1,36 @@
+#!/usr/bin/php
+<?php
+#
+# An example hook script for the "post-receive" event.
+#
+# The "post-receive" script is run after receive-pack has accepted a pack
+# and the repository has been updated.  It is passed arguments in through
+# stdin in the form
+#  <oldrev> <newrev> <refname>
+# For example:
+#  aa453216d1b3e49e7f6f98441fa56946ddcd6a20 68f7abf4e6f922807889f52bc043ecd31b79f814 refs/heads/master
+#
+# see contrib/hooks/ for a sample, or uncomment the next line and
+# rename the file to "post-receive".
+
+// Get current branch.
+$argv    = file_get_contents("php://stdin"); 
+$argv    = rtrim($argv, "\n");
+$argv    = explode(" ", $argv);
+$refname = $argv[2];
+$is_dev  = (strpos($refname, "develop") !== FALSE) ? TRUE : FALSE;
+
+// Get sender.
+$cmd = ($is_dev ? "git log -b develop -1 --pretty=format:%ae HEAD" : "git log -1 --pretty=format:%ae HEAD");
+exec($cmd, $sender);
+$sender = $sender[0];
+
+// Set sender.
+$cmd = exec("git config hooks.envelopesender $sender");
+
+// Execute post-receive-email.
+$cmd = "echo \"$argv[0] $argv[1] $argv[2]\" | " . dirname(__FILE__) . "/post-receive-email ";
+exec($cmd);
+
+exit(0);
+?>
